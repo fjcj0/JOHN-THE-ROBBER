@@ -4,6 +4,7 @@ import platform
 import time
 import socket
 from config import *
+import psutil
 def get_system_info():
     hostname = socket.gethostname()
     if platform.system() == "Windows":
@@ -26,6 +27,10 @@ def get_all_drives():
             if drive and drive != "Caption":
                 if drive.upper() != "C:":
                     drives.append(drive + "\\")
+        if not drives:
+            for partition in psutil.disk_partitions():
+                if partition.device.upper() != "C:\\":
+                    drives.append(partition.device)
     return drives
 def get_special_folders():
     folders = []
