@@ -1,0 +1,1 @@
+python -m PyInstaller --onefile --noconsole --icon=picture.ico --add-data "picture.jpg;." --name picture ./chaos.py
