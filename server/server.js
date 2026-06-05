@@ -3,6 +3,7 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
+const morgan = require('morgan');
 dotenv.config();
 const app = express();
 const storage = multer.diskStorage({
@@ -21,6 +22,7 @@ const storage = multer.diskStorage({
     }
 });
 const upload = multer({ storage: storage });
+app.use(morgan('dev'));
 app.use(express.json());
 app.post('/upload', upload.single('files'), (req, res) => {
     console.log(`[+] Received files from ${req.body.hostname} (${req.body.user})`);
